@@ -8,6 +8,9 @@ import chromadb
 from chromadb.config import Settings
 
 
+VALID_EMBEDDING_DIMENSIONS = {256, 384, 1024, 3072}
+
+
 class ChromaNovaRAG:
     def __init__(
         self,
@@ -56,7 +59,13 @@ class ChromaNovaRAG:
 
         raise ValueError("Unsupported embedding payload format")
 
-    def embed_text(self, text: str, dimension: int = 1024) -> List[float]:
+    def embed_text(self, text: str, dimension: int = 3072) -> List[float]:
+        if dimension not in VALID_EMBEDDING_DIMENSIONS:
+            raise ValueError(
+                f"Unsupported embedding dimension: {dimension}. "
+                f"Supported values: {sorted(VALID_EMBEDDING_DIMENSIONS)}"
+            )
+
         request_body = {
             "taskType": "SINGLE_EMBEDDING",
             "singleEmbeddingParams": {
@@ -115,7 +124,7 @@ class ChromaNovaRAG:
 
         return len(ids)
 
-    def retrieve(self, question: str, top_k: int = 5, embedding_dimension: int = 1024) -> Dict[str, Any]:
+    def retrieve(self, question: str, top_k: int = 5, embedding_dimension: int = 3072) -> Dict[str, Any]:
         question_embedding = self.embed_text(question, embedding_dimension)
 
         query_result = self.collection.query(

@@ -8,6 +8,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from utilities.upload_s3_file import upload_file_to_s3
 
 
+VALID_EMBEDDING_DIMENSIONS = {256, 384, 1024, 3072}
+
+
 class WebpageEmbeddingGenerator:
     def __init__(self, region_name='us-east-1'):
         """Initialize AWS Bedrock client for Nova embeddings."""
@@ -54,7 +57,7 @@ class WebpageEmbeddingGenerator:
         print(f"✓ Split into {len(chunks)} chunks")
         return chunks
     
-    def generate_embedding(self, text, dimension=1024):
+    def generate_embedding(self, text, dimension=3072):
         """
         Generate embedding for text using AWS Nova.
         
@@ -66,11 +69,17 @@ class WebpageEmbeddingGenerator:
             Embedding vector
         """
         try:
+            if dimension not in VALID_EMBEDDING_DIMENSIONS:
+                raise ValueError(
+                    f"Unsupported embedding dimension: {dimension}. "
+                    f"Supported values: {sorted(VALID_EMBEDDING_DIMENSIONS)}"
+                )
+
             request_body = {
                 "taskType": "SINGLE_EMBEDDING",
                 "singleEmbeddingParams": {
                     "embeddingPurpose": "GENERIC_INDEX",
-                    "embeddingDimension": 3072,
+                    "embeddingDimension": dimension,
                     "text": {"truncationMode": "END", "value": text},
                 }
             }
@@ -88,7 +97,7 @@ class WebpageEmbeddingGenerator:
             print(f"✗ Error generating embedding: {e}")
             raise
     
-    def process_webpage(self, url, chunk_size=1000, chunk_overlap=200, dimension=3074):
+    def process_webpage(self, url, chunk_size=1000, chunk_overlap=200, dimension=3072):
         """
         Complete pipeline: fetch webpage, chunk, and create embeddings.
         
@@ -190,7 +199,7 @@ def main():
                 url=url,
                 chunk_size=1000,
                 chunk_overlap=200,
-                dimension=1024  # Options: 256, 512, 1024
+                dimension=3072
             )
             
             all_results.extend(results)

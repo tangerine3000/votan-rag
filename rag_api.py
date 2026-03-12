@@ -3,7 +3,7 @@ import json
 import boto3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -31,7 +31,7 @@ class IngestMultipleURLsRequest(BaseModel):
     urls: List[str] = Field(..., min_items=1, description="One or more webpage URLs to ingest")
     chunk_size: int = Field(default=1000, ge=100, le=5000, description="Size of text chunks")
     chunk_overlap: int = Field(default=200, ge=0, le=1000, description="Overlap between chunks")
-    dimension: int = Field(default=1024, ge=256, le=3072, description="Embedding dimension")
+    dimension: Literal[256, 384, 1024, 3072] = Field(default=3072, description="Embedding dimension")
     s3_buckets: Optional[List[str]] = Field(default=None, description="Optional S3 bucket names to upload to")
     s3_key_prefix: Optional[str] = Field(default=None, description="Optional S3 key prefix for uploads")
 
@@ -285,6 +285,13 @@ def ingest_multiple_urls(payload: IngestMultipleURLsRequest) -> IngestMultipleUR
 
         if not all_results:
             raise ValueError("No embeddings were generated from the provided URLs.")
+
+        ingested_at = datetime.utcnow().isoformat() + "Z"
+        for record in all_results:
+            if isinstance(record.get("metadata"), dict):
+                record["metadata"]["ingested_at"] = ingested_at
+            else:
+                record["ingested_at"] = ingested_at
 
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         output_file = f"ingest_{timestamp}.json"
