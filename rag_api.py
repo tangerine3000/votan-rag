@@ -24,16 +24,19 @@ class QueryResponse(BaseModel):
 
 
 class ReindexRequest(BaseModel):
-    embeddings_file: Optional[str] = None
+    embeddings_file: Optional[str] = Field(
+        default=None,
+        description="Path to embeddings JSON file",
+        example="embedding_library/webpage_embeddings.json",
+    )
 
 
 class IngestMultipleURLsRequest(BaseModel):
+    topic_name: str = Field(..., min_length=1, description="Topic name used to label and name the embeddings file")
     urls: List[str] = Field(..., min_items=1, description="One or more webpage URLs to ingest")
     chunk_size: int = Field(default=1000, ge=100, le=5000, description="Size of text chunks")
     chunk_overlap: int = Field(default=200, ge=0, le=1000, description="Overlap between chunks")
     dimension: Literal[256, 384, 1024, 3072] = Field(default=3072, description="Embedding dimension")
-    s3_buckets: Optional[List[str]] = Field(default=None, description="Optional S3 bucket names to upload to")
-    s3_key_prefix: Optional[str] = Field(default=None, description="Optional S3 key prefix for uploads")
 
 
 class IngestMultipleURLsResponse(BaseModel):
@@ -42,7 +45,6 @@ class IngestMultipleURLsResponse(BaseModel):
     urls_processed: List[str]
     urls_failed: List[str]
     embeddings_file: str
-    s3_uploads: List[str]
     message: str
 
 
@@ -83,7 +85,7 @@ APP_PERSIST_DIR = os.getenv("RAG_PERSIST_DIR", "chroma_db")
 APP_EMBEDDINGS_FILE = os.getenv("RAG_EMBEDDINGS_FILE", "embedding_library/webpage_embeddings.json")
 
 app = FastAPI(
-    title="Chroma Nova RAG API",
+    title="Votan Nova RAG API",
     version="1.0.0",
     description="RAG pipeline with Chroma vector index and AWS Nova embeddings/chat models",
 )
@@ -290,34 +292,28 @@ def ingest_multiple_urls(payload: IngestMultipleURLsRequest) -> IngestMultipleUR
         for record in all_results:
             if isinstance(record.get("metadata"), dict):
                 record["metadata"]["ingested_at"] = ingested_at
+                record["metadata"]["topic"] = payload.topic_name
             else:
                 record["ingested_at"] = ingested_at
+                record["topic"] = payload.topic_name
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-        output_file = f"ingest_{timestamp}.json"
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+        safe_topic = "".join(c if c.isalnum() or c in "-_" else "_" for c in payload.topic_name)
+        output_file = f"{safe_topic}_{timestamp}.json"
+        output_dir = Path("embedding_library")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / output_file
 
-        s3_uploads = []
-        if payload.s3_buckets:
-            for bucket_name in payload.s3_buckets:
-                s3_key_prefix = payload.s3_key_prefix or "embeddings"
-                s3_key = f"{s3_key_prefix}/{timestamp}-{output_file}"
-                webpage_generator.save_embeddings(
-                    results=all_results,
-                    output_file=output_file,
-                    bucket_name=bucket_name,
-                    s3_key=s3_key,
-                )
-                s3_uploads.append(f"s3://{bucket_name}/{s3_key}")
-        else:
-            webpage_generator.save_embeddings(results=all_results, output_file=output_file)
+        with open(output_path, "w", encoding="utf-8") as file_handle:
+            json.dump(all_results, file_handle, indent=2, ensure_ascii=False)
+
 
         return IngestMultipleURLsResponse(
             status="success",
             total_chunks_generated=len(all_results),
             urls_processed=urls_processed,
             urls_failed=urls_failed,
-            embeddings_file=output_file,
-            s3_uploads=s3_uploads,
+            embeddings_file=str(output_path),
             message=f"Processed {len(urls_processed)} URLs, generated {len(all_results)} chunks.",
         )
     except Exception as error:
